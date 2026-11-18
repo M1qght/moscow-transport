@@ -71,6 +71,7 @@ const chooseRoute = (r: Route) => {
           <NInput
             v-model:value="search"
             placeholder="Название остановки"
+            :maxlength="100"
             clearable
             aria-label="Поиск остановки"
             ><template #prefix><Search :size="17" /></template

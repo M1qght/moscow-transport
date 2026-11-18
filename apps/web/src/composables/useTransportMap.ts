@@ -27,11 +27,14 @@ export function useTransportMap() {
         .map((rs) => rs.route) ?? [],
   );
   let request = 0;
+  let stopRequest = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   async function refresh() {
     const current = ++request;
     if (!selected.value || !routeId.value) {
       load.value = null;
+      loading.value = false;
       return;
     }
     loading.value = true;
@@ -54,15 +57,25 @@ export function useTransportMap() {
     center.value = [stop.lat, stop.lon];
   }
   async function fetchStops() {
+    const current = ++stopRequest;
     try {
-      stops.value = await api<Stop[]>('/stops?limit=1000');
+      const result = await api<Stop[]>(`/stops?limit=1000&q=${encodeURIComponent(search.value)}`);
+      if (current !== stopRequest) return;
+      stops.value = result;
       error.value = '';
       if (!selected.value && stops.value.length)
         select(stops.value.find((s) => s.id === 'demo-chistye') ?? stops.value[0]);
     } catch (e) {
-      error.value = (e as Error).message;
+      if (current === stopRequest) error.value = (e as Error).message;
     }
   }
+  watch(search, () => {
+    stopRequest++;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      void fetchStops();
+    }, 250);
+  });
   watch(routes, (value) => {
     if (!value.some((r) => r.id === routeId.value)) routeId.value = value[0]?.id ?? '';
   });
@@ -78,7 +91,9 @@ export function useTransportMap() {
   });
   onUnmounted(() => {
     clearInterval(timer);
+    clearTimeout(searchTimer);
     request++;
+    stopRequest++;
   });
   return {
     stops,
