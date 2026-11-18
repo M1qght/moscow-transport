@@ -12,6 +12,13 @@ import { PredictionService } from './prediction.service';
 @Module({
   imports: [JwtModule.register({}), ThrottlerModule.forRoot([{ ttl: 60000, limit: 120 }])],
   controllers: [AuthController, TransportController, ReportsController, AdminController],
-  providers: [Database, AuthService, AuthGuard, AdminGuard, PredictionService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    Database,
+    AuthService,
+    AuthGuard,
+    AdminGuard,
+    PredictionService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

@@ -13,17 +13,59 @@ import { configureApp } from '../src/bootstrap';
 
 config({ path: resolve(process.cwd(), '../../.env') });
 const key = `e2e_${randomUUID().slice(0, 8)}`;
-let app: INestApplication; let db: Database;
-let userId = ''; let adminId = ''; let token = ''; let adminToken = ''; let refreshCookie = ''; let reportId = '';
-const routeId = `${key}_route`; const stopId = `${key}_stop`; const nextId = `${key}_next`;
+let app: INestApplication;
+let db: Database;
+let userId = '';
+let adminId = '';
+let token = '';
+let adminToken = '';
+let refreshCookie = '';
+let reportId = '';
+const routeId = `${key}_route`;
+const stopId = `${key}_stop`;
+const nextId = `${key}_next`;
 describe('REST + PostgreSQL', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = module.createNestApplication(); configureApp(app); await app.init(); db = app.get(Database);
-    await db.stop.createMany({ data: [{ id: stopId, name: 'Тестовая', lat: 55.75, lon: 37.6, source: 'TEST' }, { id: nextId, name: 'Следующая', lat: 55.76, lon: 37.6, source: 'TEST' }] });
-    await db.route.create({ data: { id: routeId, number: 'test', title: 'API test', type: 'BUS', source: 'TEST', stops: { create: [{ stopId, order: 0 }, { stopId: nextId, order: 1 }] } } });
-    const admin = await db.user.create({ data: { login: `${key}_admin`, name: 'Тестовый модератор', role: 'ADMIN', passwordHash: await argon2.hash('test_password') } }); adminId = admin.id;
-    const result = await request(app.getHttpServer()).post('/api/auth/login').send({ login: admin.login, password: 'test_password' }).expect(201); adminToken = result.body.accessToken;
+    app = module.createNestApplication();
+    configureApp(app);
+    await app.init();
+    db = app.get(Database);
+    await db.stop.createMany({
+      data: [
+        { id: stopId, name: 'Тестовая', lat: 55.75, lon: 37.6, source: 'TEST' },
+        { id: nextId, name: 'Следующая', lat: 55.76, lon: 37.6, source: 'TEST' },
+      ],
+    });
+    await db.route.create({
+      data: {
+        id: routeId,
+        number: 'test',
+        title: 'API test',
+        type: 'BUS',
+        source: 'TEST',
+        stops: {
+          create: [
+            { stopId, order: 0 },
+            { stopId: nextId, order: 1 },
+          ],
+        },
+      },
+    });
+    const admin = await db.user.create({
+      data: {
+        login: `${key}_admin`,
+        name: 'Тестовый модератор',
+        role: 'ADMIN',
+        passwordHash: await argon2.hash('test_password'),
+      },
+    });
+    adminId = admin.id;
+    const result = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ login: admin.login, password: 'test_password' })
+      .expect(201);
+    adminToken = result.body.accessToken;
   });
   afterAll(async () => {
     if (db) {
@@ -39,54 +81,180 @@ describe('REST + PostgreSQL', () => {
     await app?.close();
   });
   it('registers, validates input, rejects duplicates and protects admin', async () => {
-    await request(app.getHttpServer()).post('/api/auth/register').send({ login: '!', name: 'I', password: 'x' }).expect(400);
-    const result = await request(app.getHttpServer()).post('/api/auth/register').send({ login: key, name: 'Ivan', password: 'test_password' }).expect(201);
-    userId = result.body.user.id; token = result.body.accessToken; refreshCookie = result.headers['set-cookie'][0].split(';')[0];
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ login: '!', name: 'I', password: 'x' })
+      .expect(400);
+    const result = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ login: key, name: 'Ivan', password: 'test_password' })
+      .expect(201);
+    userId = result.body.user.id;
+    token = result.body.accessToken;
+    refreshCookie = result.headers['set-cookie'][0].split(';')[0];
     expect(result.body.user.passwordHash).toBeUndefined();
-    await request(app.getHttpServer()).post('/api/auth/register').send({ login: key, name: 'Ivan', password: 'test_password' }).expect(409);
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ login: key, name: 'Ivan', password: 'test_password' })
+      .expect(409);
     await request(app.getHttpServer()).get('/api/admin/reports').expect(401);
-    await request(app.getHttpServer()).get('/api/admin/reports').auth(token, { type: 'bearer' }).expect(403);
+    await request(app.getHttpServer())
+      .get('/api/admin/reports')
+      .auth(token, { type: 'bearer' })
+      .expect(403);
   });
   it('checks route membership, range and concurrent cooldown', async () => {
     const body = { stopId, routeId, load: 10, action: 'RIDING' };
-    await request(app.getHttpServer()).post('/api/reports').auth(token, { type: 'bearer' }).send({ ...body, load: 101 }).expect(400);
-    await request(app.getHttpServer()).post('/api/reports').auth(token, { type: 'bearer' }).send({ ...body, routeId: 'missing' }).expect(404);
-    const results = await Promise.all([1, 2].map(() => request(app.getHttpServer()).post('/api/reports').auth(token, { type: 'bearer' }).send(body)));
-    expect(results.map(r => r.status).sort()).toEqual([201, 409]); reportId = results.find(r => r.status === 201)!.body.id;
-    await db.report.createMany({ data: [5, 15].map(load => ({ userId: adminId, stopId, routeId, load, action: 'RIDING' as const })) });
+    await request(app.getHttpServer())
+      .post('/api/reports')
+      .auth(token, { type: 'bearer' })
+      .send({ ...body, load: 101 })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/reports')
+      .auth(token, { type: 'bearer' })
+      .send({ ...body, routeId: 'missing' })
+      .expect(404);
+    const results = await Promise.all(
+      [1, 2].map(() =>
+        request(app.getHttpServer())
+          .post('/api/reports')
+          .auth(token, { type: 'bearer' })
+          .send(body),
+      ),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    reportId = results.find((r) => r.status === 201)!.body.id;
+    await db.report.createMany({
+      data: [5, 15].map((load) => ({
+        userId: adminId,
+        stopId,
+        routeId,
+        load,
+        action: 'RIDING' as const,
+      })),
+    });
     const history = new Date(Date.now() - 86400000);
-    await db.report.create({ data: { userId: adminId, stopId: nextId, routeId, load: 40, action: 'RIDING', createdAt: history } });
-    const result = await request(app.getHttpServer()).get(`/api/stops/${stopId}/load?routeId=${routeId}`).expect(200);
+    await db.report.create({
+      data: {
+        userId: adminId,
+        stopId: nextId,
+        routeId,
+        load: 40,
+        action: 'RIDING',
+        createdAt: history,
+      },
+    });
+    const result = await request(app.getHttpServer())
+      .get(`/api/stops/${stopId}/load?routeId=${routeId}`)
+      .expect(200);
     expect(result.body.current).toMatchObject({ load: 10, samples: 3 });
-    expect(result.body.prediction.historical).toBe(40); expect(result.body.prediction.historySamples).toBe(1);
-    expect(result.body.prediction.load).toBeGreaterThanOrEqual(26); expect(result.body.prediction.load).toBeLessThanOrEqual(30);
+    expect(result.body.prediction.historical).toBe(40);
+    expect(result.body.prediction.historySamples).toBe(1);
+    expect(result.body.prediction.load).toBeGreaterThanOrEqual(26);
+    expect(result.body.prediction.load).toBeLessThanOrEqual(30);
   });
   it('moderates idempotently, reverses score and excludes rejected reports', async () => {
     const endpoint = `/api/admin/reports/${reportId}`;
-    const patch = (status: string) => request(app.getHttpServer()).patch(endpoint).auth(adminToken, { type: 'bearer' }).send({ status, reason: 'Проверено модератором' }).expect(200);
-    await patch('CONFIRMED'); await patch('CONFIRMED');
+    const patch = (status: string) =>
+      request(app.getHttpServer())
+        .patch(endpoint)
+        .auth(adminToken, { type: 'bearer' })
+        .send({ status, reason: 'Проверено модератором' })
+        .expect(200);
+    await patch('CONFIRMED');
+    await patch('CONFIRMED');
     expect((await db.user.findUniqueOrThrow({ where: { id: userId } })).rating).toBe(2);
-    await patch('REJECTED'); expect((await db.user.findUniqueOrThrow({ where: { id: userId } })).rating).toBe(-3);
+    await patch('REJECTED');
+    expect((await db.user.findUniqueOrThrow({ where: { id: userId } })).rating).toBe(-3);
     expect(await db.ratingHistory.count({ where: { userId } })).toBe(2);
-    const result = await request(app.getHttpServer()).get(`/api/stops/${stopId}/load?routeId=${routeId}`).expect(200);
+    const result = await request(app.getHttpServer())
+      .get(`/api/stops/${stopId}/load?routeId=${routeId}`)
+      .expect(200);
     expect(result.body.current.samples).toBe(2);
-    await request(app.getHttpServer()).patch(`/api/admin/users/${userId}/rating`).auth(adminToken, { type: 'bearer' }).send({ delta: 5, reason: 'Полезная активность' }).expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${userId}/rating`)
+      .auth(adminToken, { type: 'bearer' })
+      .send({ delta: 5, reason: 'Полезная активность' })
+      .expect(200);
     expect((await db.user.findUniqueOrThrow({ where: { id: userId } })).rating).toBe(2);
   });
   it('supports tickets, answers and ownership boundaries', async () => {
-    const result = await request(app.getHttpServer()).post('/api/tickets').auth(token, { type: 'bearer' }).send({ type: 'QUESTION', subject: 'Как работает прогноз?', body: 'Хочу узнать, откуда берутся данные для прогноза.' }).expect(201);
-    await request(app.getHttpServer()).patch(`/api/admin/tickets/${result.body.id}`).auth(adminToken, { type: 'bearer' }).send({ status: 'CLOSED', reply: 'История плюс свежие отметки.' }).expect(200);
-    const mine = await request(app.getHttpServer()).get('/api/me/tickets').auth(token, { type: 'bearer' }).expect(200);
+    const result = await request(app.getHttpServer())
+      .post('/api/tickets')
+      .auth(token, { type: 'bearer' })
+      .send({
+        type: 'QUESTION',
+        subject: 'Как работает прогноз?',
+        body: 'Хочу узнать, откуда берутся данные для прогноза.',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/api/admin/tickets/${result.body.id}`)
+      .auth(adminToken, { type: 'bearer' })
+      .send({ status: 'CLOSED', reply: 'История плюс свежие отметки.' })
+      .expect(200);
+    const mine = await request(app.getHttpServer())
+      .get('/api/me/tickets')
+      .auth(token, { type: 'bearer' })
+      .expect(200);
     expect(mine.body[0].reply).toBe('История плюс свежие отметки.');
-    await request(app.getHttpServer()).get('/api/admin/anomalies').auth(adminToken, { type: 'bearer' }).expect(200);
+    await request(app.getHttpServer())
+      .get('/api/admin/anomalies')
+      .auth(adminToken, { type: 'bearer' })
+      .expect(200);
     expect(await db.adminLog.count({ where: { adminId } })).toBe(4);
   });
   it('rotates refresh JWT, blocks replay, CSRF and logout reuse', async () => {
-    await request(app.getHttpServer()).post('/api/auth/refresh').set('Origin', 'https://evil.example').set('Cookie', refreshCookie).expect(403);
-    const result = await request(app.getHttpServer()).post('/api/auth/refresh').set('Cookie', refreshCookie).expect(201);
-    await request(app.getHttpServer()).post('/api/auth/refresh').set('Cookie', refreshCookie).expect(401);
+    await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', refreshCookie)
+      .expect(403);
+    const result = await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .set('Cookie', refreshCookie)
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/api/auth/refresh')
+      .set('Cookie', refreshCookie)
+      .expect(401);
     const cookie = result.headers['set-cookie'][0].split(';')[0];
     await request(app.getHttpServer()).post('/api/auth/logout').set('Cookie', cookie).expect(201);
     await request(app.getHttpServer()).post('/api/auth/refresh').set('Cookie', cookie).expect(401);
+  });
+  it('excludes stale and future reports, preserves real zero, and handles no data', async () => {
+    await db.report.updateMany({ where: { routeId, stopId }, data: { status: 'REJECTED' } });
+    await db.report.createMany({
+      data: [
+        {
+          userId: adminId,
+          stopId,
+          routeId,
+          load: 100,
+          action: 'RIDING',
+          createdAt: new Date(Date.now() - 21 * 60000),
+        },
+        {
+          userId: adminId,
+          stopId,
+          routeId,
+          load: 100,
+          action: 'RIDING',
+          createdAt: new Date(Date.now() + 60000),
+        },
+        { userId: adminId, stopId, routeId, load: 0, action: 'RIDING' },
+      ],
+    });
+    const result = await request(app.getHttpServer())
+      .get(`/api/stops/${stopId}/load?routeId=${routeId}`)
+      .expect(200);
+    expect(result.body.current).toMatchObject({ load: 0, samples: 1 });
+    const terminal = await request(app.getHttpServer())
+      .get(`/api/stops/${nextId}/load?routeId=${routeId}`)
+      .expect(200);
+    expect(terminal.body.current.load).toBeNull();
+    expect(terminal.body.nextStop).toBeNull();
+    expect(terminal.body.prediction).toBeNull();
   });
 });

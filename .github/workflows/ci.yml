@@ -1,0 +1,32 @@
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: transit
+          POSTGRES_PASSWORD: transit_local
+          POSTGRES_DB: transit
+        ports: ['5432:5432']
+        options: --health-cmd="pg_isready -U transit -d transit" --health-interval=3s --health-timeout=3s --health-retries=20
+    env:
+      DATABASE_URL: postgresql://transit:transit_local@localhost:5432/transit?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      WEB_ORIGIN: http://localhost:5173
+      REPORT_COOLDOWN_MINUTES: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:e2e
+      - run: npm run build

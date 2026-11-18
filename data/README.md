@@ -28,7 +28,13 @@ npm run data:import -- --mos-file data/private/stops.json
     { "id": "source-2", "name": "Вторая", "lat": 55.76, "lon": 37.62 }
   ],
   "routes": [
-    { "id": "source-bus-1-outbound", "number": "1", "title": "Первая → Вторая", "type": "BUS", "stopIds": ["source-1", "source-2"] }
+    {
+      "id": "source-bus-1-outbound",
+      "number": "1",
+      "title": "Первая → Вторая",
+      "type": "BUS",
+      "stopIds": ["source-1", "source-2"]
+    }
   ]
 }
 ```

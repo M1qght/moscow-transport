@@ -1,2 +1,5 @@
 import { defineConfig } from 'vitest/config';
-export default defineConfig({ test: { fileParallelism: false, testTimeout: 30000, hookTimeout: 30000 }, esbuild: { tsconfigRaw: { compilerOptions: { experimentalDecorators: true } } } });
+export default defineConfig({
+  test: { fileParallelism: false, testTimeout: 30000, hookTimeout: 30000 },
+  esbuild: { tsconfigRaw: { compilerOptions: { experimentalDecorators: true } } },
+});
